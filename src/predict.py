@@ -333,23 +333,31 @@ def interactive_cli():
                     print(f"{k}. {v[0]}")
                 
                 try:
-                    basis_choice = int(input("\nEnter choice (1-9): ").strip())
-                    if basis_choice in ranking_options:
-                        basis_name, basis_col, ascending = ranking_options[basis_choice]
+                    choices_input = input("\nEnter choices separated by comma (e.g., 1,3,4): ").strip()
+                    basis_choices = [int(c.strip()) for c in choices_input.split(',')]
+                    valid_choices = [c for c in basis_choices if c in ranking_options]
+                    
+                    if valid_choices:
+                        basis_names = [ranking_options[c][0] for c in valid_choices]
+                        basis_cols = [ranking_options[c][1] for c in valid_choices]
+                        ascending_list = [ranking_options[c][2] for c in valid_choices]
                         
-                        print(f"\nTop 10 Candidates Ranked by {basis_name}:")
-                        ranked_df = df_candidates.sort_values(by=basis_col, ascending=ascending)
+                        basis_names_str = ", ".join(basis_names)
+                        print(f"\nTop 10 Candidates Ranked by {basis_names_str}:")
+                        
+                        ranked_df = df_candidates.sort_values(by=basis_cols, ascending=ascending_list)
                         for i, (_, row) in enumerate(ranked_df.head(10).iterrows()):
                             launch_price_val = row.get('launch_price', -1.0)
                             launch_price_str = f"{int(launch_price_val)} INR" if launch_price_val > 0 else "N/A"
                             launch_year_val = row.get('launch_year', -1.0)
                             launch_year_str = f"{int(launch_year_val)}" if launch_year_val > 0 else "Older"
-                            score_val = row.get(basis_col, 0)
-                            print(f"{i+1}. {row['name']} | Year: {launch_year_str} | Price: {launch_price_str} | {basis_name}: {score_val:.2f}")
+                            
+                            scores_str = " | ".join([f"{name}: {row.get(col, 0):.2f}" for name, col in zip(basis_names, basis_cols)])
+                            print(f"{i+1}. {row['name']} | Year: {launch_year_str} | Price: {launch_price_str} | {scores_str}")
                     else:
-                        print("Invalid choice. Skipping ranking.")
+                        print("Invalid choice(s). Skipping ranking.")
                 except ValueError:
-                    print("Invalid input. Skipping ranking.")
+                    print("Invalid input format. Please enter numbers separated by commas. Skipping ranking.")
         
     except ValueError as ve:
         print(f"Error: {ve}")
