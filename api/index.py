@@ -16,77 +16,89 @@ except ImportError:
 #    Without this, chromadb tries to write to ~/.cache which is read-only.
 os.environ.setdefault('CHROMA_HOME', '/tmp/chroma_cache')
 
-# ─── Now safe to import everything else ───────────────────────────────────────
+import traceback
 
-import numpy as np
-import pandas as pd
-from flask import Flask, jsonify, request, send_from_directory
+IMPORT_ERROR = None
+try:
+    import numpy as np
+    import pandas as pd
+    from flask import Flask, jsonify, request, send_from_directory
 
-# Add the api/ directory to sys.path so sibling modules (predict.py, utils.py)
-# can be imported by Python without any path hacks.
-api_dir = os.path.dirname(os.path.abspath(__file__))
-if api_dir not in sys.path:
-    sys.path.insert(0, api_dir)
+    # Add the api/ directory to sys.path so sibling modules (predict.py, utils.py)
+    # can be imported by Python without any path hacks.
+    api_dir = os.path.dirname(os.path.abspath(__file__))
+    if api_dir not in sys.path:
+        sys.path.insert(0, api_dir)
 
-from predict import query_and_rank_recommendations, PERSONAS
+    from predict import query_and_rank_recommendations, PERSONAS
+except Exception as e:
+    IMPORT_ERROR = traceback.format_exc()
+    # Provide dummy Flask app so Vercel doesn't crash on boot
+    from flask import Flask, jsonify
+    app = Flask(__name__)
 
-# Static files (HTML/CSS/JS) live in FRONTEND/ at the repo root
-frontend_dir = os.path.abspath(os.path.join(api_dir, '..', 'FRONTEND'))
+if IMPORT_ERROR:
+    @app.route('/', defaults={'path': ''})
+    @app.route('/<path:path>', methods=['GET', 'POST'])
+    def catch_all(path):
+        return jsonify({"error": "Vercel Boot Error", "traceback": IMPORT_ERROR}), 500
+else:
+    # Static files (HTML/CSS/JS) live in FRONTEND/ at the repo root
+    frontend_dir = os.path.abspath(os.path.join(api_dir, '..', 'FRONTEND'))
+    app = Flask(__name__, static_folder=frontend_dir, static_url_path='')
 
-app = Flask(__name__, static_folder=frontend_dir, static_url_path='')
+    @app.route('/')
+    def index():
+        return send_from_directory(app.static_folder, 'index.html')
 
-@app.route('/')
-def index():
-    return send_from_directory(app.static_folder, 'index.html')
-
-@app.route('/api/recommend', methods=['POST'])
-def recommend():
-    try:
-        data = request.json or {}
-        persona_id = data.get('persona_id')
-        user_query = data.get('query', '')
-
-        if persona_id is None:
-            return jsonify({"error": "persona_id is required"}), 400
+    @app.route('/api/recommend', methods=['POST'])
+    def recommend():
         try:
-            persona_id = int(persona_id)
-        except ValueError:
-            return jsonify({"error": "persona_id must be an integer"}), 400
-        if persona_id not in PERSONAS:
-            return jsonify({"error": "Invalid persona ID. Must be 1-6"}), 400
+            data = request.json or {}
+            persona_id = data.get('persona_id')
+            user_query = data.get('query', '')
 
-        # Point to chroma_db relative to the repo root
-        persist_dir = os.path.abspath(os.path.join(api_dir, '..', 'data', 'chroma_db'))
+            if persona_id is None:
+                return jsonify({"error": "persona_id is required"}), 400
+            try:
+                persona_id = int(persona_id)
+            except ValueError:
+                return jsonify({"error": "persona_id must be an integer"}), 400
+            if persona_id not in PERSONAS:
+                return jsonify({"error": "Invalid persona ID. Must be 1-6"}), 400
 
-        explanation, df_candidates = query_and_rank_recommendations(persona_id, user_query, persist_dir=persist_dir)
-        explanation = explanation.replace(
-            "These phones are recommended on the basis of launch price",
-            "Recommendations may vary. Verify specifications before purchase."
-        )
+            # Point to chroma_db relative to the repo root
+            persist_dir = os.path.abspath(os.path.join(api_dir, '..', 'data', 'chroma_db'))
 
-        candidates_list = []
-        if df_candidates is not None and not df_candidates.empty:
-            df_cleaned = df_candidates.where(pd.notnull(df_candidates), None)
-            candidates_list = df_cleaned.to_dict(orient='records')
+            explanation, df_candidates = query_and_rank_recommendations(persona_id, user_query, persist_dir=persist_dir)
+            explanation = explanation.replace(
+                "These phones are recommended on the basis of launch price",
+                "Recommendations may vary. Verify specifications before purchase."
+            )
 
-        top_recommendations = candidates_list[:3]
+            candidates_list = []
+            if df_candidates is not None and not df_candidates.empty:
+                df_cleaned = df_candidates.where(pd.notnull(df_candidates), None)
+                candidates_list = df_cleaned.to_dict(orient='records')
 
-        persona_info = {
-            "name": PERSONAS[persona_id]["name"],
-            "goal": PERSONAS[persona_id]["goal"],
-            "id": persona_id
-        }
+            top_recommendations = candidates_list[:3]
 
-        return jsonify({
-            "explanation": explanation,
-            "recommendations": top_recommendations,
-            "candidates": candidates_list,
-            "persona": persona_info
-        })
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+            persona_info = {
+                "name": PERSONAS[persona_id]["name"],
+                "goal": PERSONAS[persona_id]["goal"],
+                "id": persona_id
+            }
+
+            return jsonify({
+                "explanation": explanation,
+                "recommendations": top_recommendations,
+                "candidates": candidates_list,
+                "persona": persona_info
+            })
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))
