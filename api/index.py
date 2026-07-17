@@ -16,13 +16,16 @@ except ImportError:
 #    Without this, chromadb tries to write to ~/.cache which is read-only.
 os.environ.setdefault('CHROMA_HOME', '/tmp/chroma_cache')
 
+# ─── Top-level App Definition for Vercel Builder ──────────────────────────────
+from flask import Flask, jsonify, request, send_from_directory
+app = Flask(__name__)
+
 import traceback
 
 IMPORT_ERROR = None
 try:
     import numpy as np
     import pandas as pd
-    from flask import Flask, jsonify, request, send_from_directory
 
     # Add the api/ directory to sys.path so sibling modules (predict.py, utils.py)
     # can be imported by Python without any path hacks.
@@ -31,11 +34,14 @@ try:
         sys.path.insert(0, api_dir)
 
     from predict import query_and_rank_recommendations, PERSONAS
+    
+    # Configure the app with static folder after successful imports
+    frontend_dir = os.path.abspath(os.path.join(api_dir, '..', 'FRONTEND'))
+    app.static_folder = frontend_dir
+    app.static_url_path = ''
+
 except Exception as e:
     IMPORT_ERROR = traceback.format_exc()
-    # Provide dummy Flask app so Vercel doesn't crash on boot
-    from flask import Flask, jsonify
-    app = Flask(__name__)
 
 if IMPORT_ERROR:
     @app.route('/', defaults={'path': ''})
@@ -43,10 +49,6 @@ if IMPORT_ERROR:
     def catch_all(path):
         return jsonify({"error": "Vercel Boot Error", "traceback": IMPORT_ERROR}), 500
 else:
-    # Static files (HTML/CSS/JS) live in FRONTEND/ at the repo root
-    frontend_dir = os.path.abspath(os.path.join(api_dir, '..', 'FRONTEND'))
-    app = Flask(__name__, static_folder=frontend_dir, static_url_path='')
-
     @app.route('/')
     def index():
         return send_from_directory(app.static_folder, 'index.html')
