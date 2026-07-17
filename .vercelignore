@@ -1,0 +1,11 @@
+notebooks
+docs
+venv
+.venv
+env
+.env
+data/*.csv
+data/*.xlsx
+*.ipynb
+__pycache__
+.pytest_cache

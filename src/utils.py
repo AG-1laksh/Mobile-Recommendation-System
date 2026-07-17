@@ -2,7 +2,12 @@
 import os
 import pandas as pd
 import chromadb
-from chromadb.utils import embedding_functions
+from google import genai
+from google.genai import types
+from chromadb import EmbeddingFunction, Documents, Embeddings
+from dotenv import load_dotenv
+
+load_dotenv()
 
 def get_chroma_client(persist_directory):
     """Initializes and returns a persistent ChromaDB client."""
@@ -10,11 +15,38 @@ def get_chroma_client(persist_directory):
     client = chromadb.PersistentClient(path=persist_directory)
     return client
 
+class GeminiEmbeddingFunction(EmbeddingFunction):
+    """Custom ChromaDB embedding function using Google Gemini text-embedding-004 model.
+    Replaces the heavy local ONNX model (all-MiniLM-L6-v2) to eliminate cold-start
+    model downloads in serverless environments like Vercel.
+    """
+    def __init__(self, api_key: str = None):
+        self._api_key = api_key or os.environ.get("GEMINI_API_KEY")
+        if not self._api_key:
+            raise ValueError("GEMINI_API_KEY must be set to use GeminiEmbeddingFunction.")
+        self._client = genai.Client(api_key=self._api_key)
+
+    def __call__(self, input: Documents) -> Embeddings:
+        """Embed a list of text documents using the Gemini API."""
+        embeddings = []
+        for text in input:
+            result = self._client.models.embed_content(
+                model="models/gemini-embedding-001",
+                contents=text,
+                config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT")
+            )
+            embeddings.append(result.embeddings[0].values)
+        return embeddings
+
+
 def get_or_create_collection(client, collection_name="samsung_phones"):
-    """Gets or creates a collection in ChromaDB with default sentence transformer embeddings."""
-    # Default embedding function uses all-MiniLM-L6-v2 model locally
-    emb_fn = embedding_functions.DefaultEmbeddingFunction()
-    collection = client.get_or_create_collection(name=collection_name, embedding_function=emb_fn)
+    """Gets or creates a ChromaDB collection using Gemini text embeddings."""
+    emb_fn = GeminiEmbeddingFunction()
+    collection = client.get_or_create_collection(
+        name=collection_name,
+        embedding_function=emb_fn,
+        metadata={"hnsw:space": "cosine"}
+    )
     return collection
 
 def create_phone_document(row):

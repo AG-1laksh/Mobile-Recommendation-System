@@ -1,13 +1,8 @@
 numpy
 pandas
-scikit-learn
-scipy
-matplotlib
-seaborn
-jupyter
-notebook
-joblib
 python-dotenv
-chromadb
-ollama
+chromadb==0.4.24
+google-genai
+pysqlite3-binary
+# flask is only needed for local development (FRONTEND/server.py), not for Netlify/Vercel Functions
 flask

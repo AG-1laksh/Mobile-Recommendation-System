@@ -14,15 +14,16 @@ def run_db_population(dataset_path, persist_dir):
     print(f"Initializing ChromaDB in directory: {persist_dir}")
     client = get_chroma_client(persist_dir)
     
-    # Get collection
-    collection = get_or_create_collection(client)
-    
-    # Check if collection has documents already, and clear if so to avoid duplicates
-    existing_count = collection.count()
-    if existing_count > 0:
-        print(f"Collection already has {existing_count} documents. Re-creating collection to refresh data...")
+    # Always delete the existing collection to avoid embedding function conflicts
+    # (e.g. switching from ONNX/default to Gemini embeddings)
+    try:
         client.delete_collection("samsung_phones")
-        collection = get_or_create_collection(client)
+        print("Deleted existing 'samsung_phones' collection to apply new embedding function.")
+    except Exception:
+        print("No existing collection found, creating fresh.")
+
+    # Create fresh collection with Gemini embeddings
+    collection = get_or_create_collection(client)
         
     # Populate collection
     populate_chromadb(df, collection)

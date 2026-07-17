@@ -5,7 +5,11 @@ import re
 import pandas as pd
 import numpy as np
 import chromadb
-import ollama
+from google import genai
+from google.genai import types
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from utils import get_chroma_client, get_or_create_collection
 
@@ -259,17 +263,24 @@ def query_and_rank_recommendations(persona_id, user_query="", persist_dir=None):
     """
     
     try:
-        response = ollama.chat(model='llama3.2', messages=[
-            {'role': 'system', 'content': 'You are a helpful and polite Samsung phone recommender.'},
-            {'role': 'user', 'content': llm_prompt}
-        ])
-        explanation = response['message']['content']
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY environment variable is not set.")
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=llm_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction='You are a helpful and polite Samsung phone recommender.'
+            )
+        )
+        explanation = response.text
         disclaimer = "These phones are recommended on the basis of launch price"
         if disclaimer not in explanation:
             explanation += f"\n\nDisclaimer: {disclaimer}"
         return explanation, df_candidates_sorted
     except Exception as e:
-        print(f"Error calling local Llama 3.2 via Ollama: {e}")
+        print(f"Error calling Gemini API: {e}")
         print("Falling back to a rules-based explanation template.")
         # Fallback text if LLM call fails
         explanation = f"### Recommendations for {persona['name']}:\n\n"
